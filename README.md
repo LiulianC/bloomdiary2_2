@@ -1,6 +1,7 @@
+<img src="./logo1024.png" alt="成长小账本" width="20%" title="成长小账本">
+
 # 🌸 BloomDiary 2.0
 一个专注于“用即时激励养成积极习惯”的现代化的数字日记应用，让您记录生活中的美好时光。
-<img src="./logo1024.png" alt="成长小账本" width="20%" title="成长小账本">
 
 ## ✨ 项目简介
 
@@ -64,6 +65,7 @@ bloomdiary2_2/
 ├── assets/              # 图片等资源文件
 ├── android/             # Android 相关代码 (Kotlin)
 ├── package.json         # 项目配置文件
+├── BloomDiary.apk       # 安卓安装包
 └── README.md           # 项目说明文档
 ```
 
@@ -84,9 +86,27 @@ bloomdiary2_2/
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 打开 Pull Request
 
-## 📄 许可证
+## 📄 MIT License
 
-本项目采用 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+Copyright (c) 2025 LiulianC
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## 👨‍💻 作者
 

@@ -1,6 +1,7 @@
+<img src="./logo1024.png" alt="成长小账本" width="20%" title="成长小账本">
+
 # 🌸 BloomDiary 2.0
 一个专注于“用即时激励养成积极习惯”的现代化的数字日记应用，让您记录生活中的美好时光。
-<img src="./logo1024.png" alt="成长小账本" width="20%" title="成长小账本">
 
 ## ✨ 项目简介
 

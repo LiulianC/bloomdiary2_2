@@ -64,6 +64,7 @@ bloomdiary2_2/
 ├── assets/              # 图片等资源文件
 ├── android/             # Android 相关代码 (Kotlin)
 ├── package.json         # 项目配置文件
+├── BloomDiary.apk       # 安卓安装包
 └── README.md           # 项目说明文档
 ```
 

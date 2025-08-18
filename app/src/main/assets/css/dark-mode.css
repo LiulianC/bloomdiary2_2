@@ -1,0 +1,39 @@
+/* 深色模式变量 */
+body.dark-mode {
+    --primary-color: #f8a5c5; /* 稍亮的粉色 */
+    --secondary-color: #81c3ff; /* 稍亮的蓝色 */
+    --accent-color: #a0d8a0; /* 稍亮的绿色 */
+    --neutral-color: #3a3a3a; /* 深灰色 */
+    
+    /* 文字颜色 */
+    --text-primary: #e0e0e0;
+    --text-secondary: #a0a0a0;
+    
+    /* 背景色 */
+    --bg-primary: #121212;
+    --bg-secondary: #202020;
+    --bg-card: #282828;
+    
+    /* 边框和阴影 */
+    --border-color: #404040;
+    --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* 深色模式图标颜色调整 */
+body.dark-mode .task-item {
+    background-color: #333333;
+}
+
+body.dark-mode .task-check {
+    border-color: #555555;
+}
+
+body.dark-mode #theme-toggle i {
+    color: var(--accent-color);
+}
+
+/* 深色模式图表颜色调整 */
+body.dark-mode .chart-container {
+    filter: brightness(0.9);
+}

@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-Content-Type-Options" content="nosniff">
+    <meta http-equiv="X-XSS-Protection" content="1; mode=block">
+    <meta http-equiv="Referrer-Policy" content="strict-origin-when-cross-origin">
+    <title>成长小账本 | Bloom Diary</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="stylesheet" href="css/dark-mode.css">
+    <!-- 使用本地FontAwesome CSS -->
+    <link rel="stylesheet" href="css/fontawesome.min.css">
+    <!-- 动态注入 PWA manifest：只在 HTTPS/localhost 环境加载，避免在 file:// 环境触发 CORS 报错 -->
+    <script>
+        (function () {
+            var isSecure = location.protocol === 'https:' ||
+                           location.hostname === 'localhost' ||
+                           location.hostname === '127.0.0.1' ||
+                           location.hostname === '0.0.0.0';
+            if (isSecure) {
+                var link = document.createElement('link');
+                link.rel = 'manifest';
+                link.href = 'manifest.json';
+                document.head.appendChild(link);
+            } else {
+                console.log('非安全上下文(file:// 等)，跳过加载 manifest.json 以避免 CORS 报错');
+            }
+        })();
+    </script>
+    <meta name="theme-color" content="#f8c3cd"> 
+
+    <script>
+        // 安全地加载 Chart.js：HTTPS/localhost 优先 CDN，失败再回退到本地；file:// 直接本地
+        (function loadChartJS() {
+            var isSecure = location.protocol === 'https:' ||
+                           location.hostname === 'localhost' ||
+                           location.hostname === '127.0.0.1' ||
+                           location.hostname === '0.0.0.0';
+            var useCdn = isSecure;
+
+            function appendScript(src) {
+                var s = document.createElement('script');
+                s.src = src;
+                s.async = false; // 保证按顺序执行，先加载 Chart 再加载依赖它的模块
+                document.head.appendChild(s);
+                return s;
+            }
+
+            if (useCdn) {
+                var cdn = appendScript('https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js');
+                cdn.onerror = function() {
+                    console.warn('CDN Chart.js 加载失败，回退到本地文件');
+                    appendScript('js/chart.min.js');
+                };
+            } else {
+                // file:// 或不安全上下文：直接用本地
+                appendScript('js/chart.min.js');
+            }
+        })();
+    </script>
+        
+</head>
+<body>
+    <div id="app">
+        <!-- 顶部导航 -->
+        <header>
+            <div class="logo">
+                <i class="fas fa-seedling"></i>
+                <h1>成长小账本</h1>
+            </div>
+            <nav>
+                <!-- 调整顺序，设置按钮放在切换主题按钮左侧 -->
+                <button id="settings-btn" aria-label="设置" class="icon-btn">
+                    <i class="fas fa-cog"></i>
+                </button>
+                <button id="theme-toggle" aria-label="切换主题" class="icon-btn">
+                    <i class="fas fa-moon"></i>
+                </button>
+            </nav>
+        </header>
+
+
+        <div class="app-purpose-card">
+            <!-- 半透明注释小字 -->
+            <div class="annotation-text">
+                <span class="annotation-icon">🎈</span>
+                BloomDiary希望通过游戏化机制将生活目标可视化，用即时反馈激活多巴胺系统，帮助用户建立可持续的积极习惯
+            </div>
+        </div>
+
+
+
+        <!-- 主内容区 -->
+        <main>
+            <!-- 每日总览 -->
+            <section id="daily-overview">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>今日总览</h2>
+                        <span id="current-date"></span>
+                    </div>
+                    <div class="card-body">
+                        <!-- 添加打卡卡片区域 -->
+                        <div class="checkin-cards">
+                            <div class="checkin-card" id="wakeup-checkin-card">
+                                <div class="checkin-icon">
+                                    <i class="fas fa-sun"></i>
+                                </div>
+                                <div class="checkin-info">
+                                    <h3>今日起床打卡</h3>
+                                    <div id="wakeup-status" class="checkin-status">未打卡</div>
+                                    <div id="wakeup-time-display" class="checkin-time hidden"></div>
+                                </div>
+                                <button id="wakeup-btn" class="primary-btn">打卡</button>
+                            </div>
+                            
+                            <div class="checkin-card" id="sleep-checkin-card">
+                                <div class="checkin-icon">
+                                    <i class="fas fa-moon"></i>
+                                </div>
+                                <div class="checkin-info">
+                                    <h3>今日睡觉打卡</h3>
+                                    <div id="sleep-status" class="checkin-status">未打卡</div>
+                                    <div id="sleep-time-display" class="checkin-time hidden"></div>
+                                </div>
+                                <button id="sleep-btn" class="primary-btn">打卡</button>
+                            </div>
+                        </div>                        
+                        <div class="stats-summary">
+                            <div class="stat-item">
+                                <i class="fas fa-coins"></i>
+                                <span>今日收入: </span>
+                                <span id="today-earnings">0</span> 元
+                            </div>
+                            <div class="stat-item">
+                                <i class="fas fa-tasks"></i>
+                                <span>任务完成: </span>
+                                <span id="today-tasks">0/0</span>
+                            </div>
+                            <div class="stat-item">
+                                <i class="fas fa-clock"></i>
+                                <span>学习时间: </span>
+                                <span id="today-study">0</span> 分钟
+                            </div>
+                        </div>
+                        
+                        <!-- 添加任务完成情况展示区域 -->
+                        <div class="completed-tasks-overview">
+                            <h3>已完成任务</h3>
+                            
+                            <div id="overview-tasks-container">
+                                <!-- 这里将显示按类别分组的任务 -->
+                            </div>
+                        </div>
+                        
+                    </div>
+                </div>
+            </section>
+
+            <!-- 学习计时器 -->
+            <section id="study-timer">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>学习计时</h2>
+                    </div>
+                    <div class="card-body">
+                        <div class="timer-display">
+                            <span id="timer">00:00:00</span>
+                        </div>
+                        <div class="timer-controls">
+                            <div class="timer-mode">
+                                <label>
+                                    <input type="radio" name="timer-mode" value="countup" checked> 正计时
+                                </label>
+                                <label>
+                                    <input type="radio" name="timer-mode" value="countdown"> 倒计时
+                                </label>
+                            </div>
+                            <div class="time-presets" id="countdown-options" style="display: none;">
+                                <button data-time="5">5分钟</button>
+                                <button data-time="10">10分钟</button>
+                                <button data-time="15">15分钟</button>
+                                <button data-time="30">30分钟</button>
+                                <button data-time="45">45分钟</button>
+                                <button data-time="60">60分钟</button>
+                            </div>
+                            <div class="action-buttons">
+                                <button id="start-timer" class="primary-btn">开始</button>
+                                <button id="pause-timer" class="secondary-btn" disabled>暂停</button>
+                                <button id="stop-timer" class="danger-btn" disabled>结束</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 任务系统 -->
+            <section id="tasks-section">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>每日任务</h2>
+                        <button id="add-task-btn" class="icon-btn" title="添加任务" aria-label="添加新任务">
+                            <i class="fas fa-plus"></i>
+                        </button>
+                    </div>
+                    <div class="card-body">
+                        <div class="tabs">
+                            <button class="tab-btn active" data-category="身体健康">身体健康</button>
+                            <button class="tab-btn" data-category="心理健康">心理健康</button>
+                            <button class="tab-btn" data-category="灵魂滋养">灵魂滋养</button>
+                            <button class="tab-btn" data-category="自我提升">自我提升</button>
+                            <button class="tab-btn" data-category="广结善缘">广结善缘</button>
+                            <button class="tab-btn" data-category="custom" id="custom-tab" title="自定义类别" aria-label="查看自定义任务类别">
+                                <i class="fas fa-ellipsis-h"></i>
+                            </button>
+                        </div>
+                        
+                        <div class="tab-content active" data-category="身体健康">
+                            <p class="hint-text">健全的精神寓于健全的身体。</p>
+                            <div class="tasks-list" id="tasks-身体健康"></div>
+                        </div>
+                        
+                        <div class="tab-content" data-category="心理健康">
+                            <p class="hint-text">爱自己是浪漫的开始。</p>
+                            <div class="tasks-list" id="tasks-心理健康"></div>
+                        </div>
+                        
+                        <div class="tab-content" data-category="灵魂滋养">
+                            <p class="hint-text">“灵魂滋养”这个概念，强调的不是外在成就，而是内在生命的丰盈与安宁。</p>
+                            <div class="tasks-list" id="tasks-灵魂滋养"></div>
+                        </div>
+                        
+                        <div class="tab-content" data-category="自我提升">
+                            <p class="hint-text">不积跬步，无以至千里；不积小流，无以成江海。</p>
+                            <div class="tasks-list" id="tasks-自我提升"></div>
+                        </div>
+                        
+                        <div class="tab-content" data-category="广结善缘">
+                            <p class="hint-text">没有人是一座孤岛，能够自全；每个人都是大陆的一片，整体的一部分。</p>
+                            <div class="tasks-list" id="tasks-广结善缘"></div>
+                        </div>
+                        
+                        <div class="tab-content" data-category="custom">
+                            <div class="custom-categories" id="custom-categories"></div>
+                        </div>
+
+                        <style>
+                            .hint-text {
+                                font-size: 12px;  /* 调整字号 */
+                                color: #666;      /* 灰色更显次要 */
+                                margin: 5px 0;    /* 调整间距 */
+                            }
+                        </style>
+
+                    </div>
+                </div>
+            </section>
+
+            <!-- 数据统计 -->
+            <section id="statistics-section">
+                <div class="card">
+                    <div class="card-header">
+                        <h2>数据统计</h2>
+                        <div class="stat-controls">
+                            <button class="stat-period active" data-period="day">日</button>
+                            <button class="stat-period" data-period="week">周</button>
+                            <button class="stat-period" data-period="month">月</button>
+                            <button class="stat-period" data-period="year">年</button>
+                            <button id="export-data" class="icon-btn" title="导出数据">
+                                <i class="fas fa-download"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-tabs">
+                            <button class="chart-tab active" data-chart="income">收入</button>
+                            <button class="chart-tab" data-chart="sleep">睡眠</button>
+                        </div>
+                        <div class="chart-container">
+                            <canvas id="daily-chart"></canvas>
+                            <canvas id="period-chart" style="display: none;"></canvas>
+                            <canvas id="sleep-chart" style="display: none;"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 红账本 -->
+            <section id="redbook-section">
+                <!-- 主页面 -->
+                <div id="redbook-main-page" class="redbook-page">
+                    <div class="card redbook-card">
+                        <div class="card-header redbook-header">
+                            <h2><i class="fas fa-heart"></i> 红账本</h2>
+                            <div class="redbook-controls">
+                                <button id="redbook-search-btn" class="icon-btn" title="搜索历史记录" aria-label="搜索历史记录">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                                <button id="add-redbook-entry-btn" class="icon-btn primary" title="添加美好时刻" aria-label="添加新的美好时刻">
+                                    <i class="fas fa-plus"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="redbook-today-section">
+                                <h3>今日美好时刻</h3>
+                                <div id="redbook-today-entries" class="redbook-entries-list">
+                                    <!-- 今日条目将动态加载到这里 -->
+                                </div>
+                            </div>
+                            <div class="redbook-actions">
+                                <button id="redbook-history-btn" class="secondary-btn">
+                                    <i class="fas fa-history"></i> 历史红账
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 详情页面 -->
+                <div id="redbook-detail-page" class="redbook-page" style="display: none;">
+                    <div class="card redbook-card">
+                        <div class="card-header redbook-header">
+                            <button id="redbook-back-to-main" class="icon-btn" title="返回主页" aria-label="返回红账本主页">
+                                <i class="fas fa-arrow-left"></i>
+                            </button>
+                            <h2>美好时刻</h2>
+                            <div class="redbook-controls">
+                                <button id="redbook-edit-btn" class="icon-btn" title="编辑" aria-label="编辑这条记录">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button id="redbook-delete-btn" class="icon-btn danger" title="删除" aria-label="删除这条记录">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div class="redbook-detail-content" id="redbook-detail-content">
+                                <!-- 详细内容将动态填充 -->
+                            </div>
+                            <div class="redbook-detail-time" id="redbook-detail-time">
+                                <!-- 时间信息将动态填充 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 历史页面 -->
+                <div id="redbook-history-page" class="redbook-page" style="display: none;">
+                    <div class="card redbook-card">
+                        <div class="card-header redbook-header">
+                            <button id="redbook-back-to-history" class="icon-btn" title="返回主页" aria-label="返回红账本主页">
+                                <i class="fas fa-arrow-left"></i>
+                            </button>
+                            <h2>历史红账</h2>
+                            <div class="redbook-controls">
+                                <button id="redbook-search-btn-history" class="icon-btn" title="搜索" aria-label="搜索历史记录">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body">
+                            <div id="redbook-history-entries" class="redbook-history-list">
+                                <!-- 历史条目将动态加载到这里 -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+
+        <!-- 底部导航 -->
+        <footer>
+            <nav class="bottom-nav">
+                <button class="nav-item active" data-target="daily-overview">
+                    <i class="fas fa-home"></i>
+                    <span>总览</span>
+                </button>
+                <button class="nav-item" data-target="study-timer">
+                    <i class="fas fa-clock"></i>
+                    <span>学习</span>
+                </button>
+                <button class="nav-item" data-target="tasks-section">
+                    <i class="fas fa-tasks"></i>
+                    <span>任务</span>
+                </button>
+                <button class="nav-item" data-target="statistics-section">
+                    <i class="fas fa-chart-pie"></i>
+                    <span>统计</span>
+                </button>
+                <button class="nav-item" data-target="redbook-section">
+                    <i class="fas fa-heart"></i>
+                    <span>红账本</span>
+                </button>
+            </nav>
+        </footer>
+    </div>
+
+    <!-- 模态框 -->
+    <div id="modal-overlay" class="hidden">
+        <!-- 添加任务模态框 -->
+        <div id="add-task-modal" class="modal hidden">
+            <div class="modal-header">
+                <h3>添加任务</h3>
+                <button class="close-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="add-task-form">
+                    <div class="form-group">
+                        <label for="task-category">任务类别</label>
+                        <select id="task-category" required>
+                            <option value="身体健康">身体健康</option>
+                            <option value="心理健康">心理健康</option>
+                            <option value="灵魂滋养">灵魂滋养</option>
+                            <option value="自我提升">自我提升</option>
+                            <option value="广结善缘">广结善缘</option>
+                        </select>
+                        <button type="button" id="add-category-btn" class="text-btn">添加自定义类别</button>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-name">任务名称</label>
+                        <input type="text" id="task-name" required>
+                    </div>
+                    <div class="form-group">
+                        <label>选择模板</label>
+                        <div class="templates-container" id="task-templates"></div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="primary-btn">添加</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 添加类别模态框 -->
+        <div id="add-category-modal" class="modal hidden">
+            <div class="modal-header">
+                <h3>添加自定义类别</h3>
+                <button class="close-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="add-category-form">
+                    <div class="form-group">
+                        <label for="category-name">类别名称</label>
+                        <input type="text" id="category-name" required>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="primary-btn">添加</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 设置模态框 - 确保这个结构存在且正确 -->
+        <div id="settings-modal" class="modal hidden">
+            <div class="modal-header">
+                <h3>应用设置</h3>
+                <button class="close-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <!-- 设置模态框中的文件输入 - 修改ID避免冲突 -->
+                <div class="settings-section">
+                    <h4>数据管理</h4>
+                    <div class="settings-info">
+                        <p>当前数据存储位置：浏览器本地存储(LocalStor age)</p>
+                        <p>数据总大小：<span id="data-size">计算中...</span></p>
+                    </div>
+                    <div class="settings-actions">
+                        <button id="export-all-data" class="secondary-btn">
+                            <i class="fas fa-download"></i> 导出所有数据
+                        </button>
+                        <button id="import-data" class="secondary-btn">
+                            <i class="fas fa-upload"></i> 导入数据
+                        </button>
+                        <button id="clear-data" class="danger-btn">
+                            <i class="fas fa-trash"></i> 清除所有数据
+                        </button>
+                    </div>
+                    
+                    <!-- 修改文件输入的ID，避免与其他元素冲突 -->
+                    <label for="settings-import-file-input" class="sr-only">选择要导入的数据文件</label>
+                    <input type="file" 
+                        id="settings-import-file-input" 
+                        accept=".json" 
+                        style="display: none;"
+                        aria-label="选择要导入的JSON数据文件"
+                        title="选择要导入的数据文件">
+                </div>                    
+                    <!-- 自动备份设置 -->
+                    <div class="form-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="auto-backup-toggle" checked>
+                            <span>启用每日自动备份</span>
+                        </label>
+                        <p class="setting-desc">每天23:00自动备份数据到BloomData文件夹</p>
+                    </div>
+                </div>
+                
+                <!-- 数据文件夹管理 -->
+                <div class="settings-section" id="vault-manager-section">
+                    <h4>数据文件夹</h4>
+                    <div class="settings-info">
+                        <p id="vault-storage-info">存储方式：检测中...</p>
+                        <p>文件夹名称：<span id="vault-folder-name">BloomData</span></p>
+                    </div>
+                    <div class="vault-actions">
+                        <button id="refresh-vault-files" class="secondary-btn">
+                            <i class="fas fa-sync"></i> 刷新文件列表
+                        </button>
+                    </div>
+                    <div class="vault-file-list" id="vault-file-list">
+                        <div class="loading-message">加载文件列表中...</div>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h4>打卡设置</h4>
+                    <div class="settings-form">
+                        <div class="form-group">
+                            <label>早起打卡奖励时段：</label>
+                            <div class="time-range-inputs">
+                                <label for="early-wake-start-time" class="sr-only">早起开始时间</label>
+                                <input type="time" 
+                                    id="early-wake-start-time" 
+                                    value="05:00"
+                                    title="设置早起打卡的开始时间"
+                                    aria-label="早起打卡开始时间">
+                                <span>至</span>
+                                <label for="early-wake-end-time" class="sr-only">早起结束时间</label>
+                                <input type="time" 
+                                    id="early-wake-end-time" 
+                                    value="06:00"
+                                    title="设置早起打卡的结束时间"
+                                    aria-label="早起打卡结束时间">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>早睡打卡奖励时段：</label>
+                            <div class="time-range-inputs">
+                                <label for="early-sleep-start-time" class="sr-only">早睡开始时间</label>
+                                <input type="time" 
+                                    id="early-sleep-start-time" 
+                                    value="22:00"
+                                    title="设置早睡打卡的开始时间"
+                                    aria-label="早睡打卡开始时间">
+                                <span>至</span>
+                                <label for="early-sleep-end-time" class="sr-only">早睡结束时间</label>
+                                <input type="time" 
+                                    id="early-sleep-end-time" 
+                                    value="23:00"
+                                    title="设置早睡打卡的结束时间"
+                                    aria-label="早睡打卡结束时间">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="settings-section">
+                    <h4>开发者选项</h4>
+                    <div class="form-group">   
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="dev-mode-toggle">
+                            <span>开发者模式</span>
+                        </label>
+                        <p class="setting-desc">启用测试功能，方便验证应用流程</p>
+                    </div>
+                    <div id="dev-options" class="hidden">
+                        <button id="add-test-data" class="secondary-btn">
+                            <i class="fas fa-plus"></i> 添加测试数据
+                        </button>
+                        <button id="reset-today" class="warning-btn">
+                            <i class="fas fa-redo"></i> 重置今日数据
+                        </button>
+                    </div>
+                </div>
+                
+                <div class="form-actions">
+                    <button id="save-settings" class="primary-btn">保存设置</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 退出确认模态框 -->
+        <div id="exit-confirm-modal" class="modal hidden">
+            <div class="modal-header">
+                <h3>确定退出学习？</h3>
+                <button class="close-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <p>提前结束学习将按8元/小时计算收入，是否确认退出？</p>
+                <div class="form-actions">
+                    <button id="confirm-exit" class="danger-btn">确认退出</button>
+                    <button id="cancel-exit" class="secondary-btn">继续学习</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 红账本添加/编辑条目模态框 -->
+        <div id="redbook-add-entry-modal" class="modal hidden">
+            <div class="modal-header">
+                <h3>记录美好时刻</h3>
+                <button class="close-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="redbook-entry-form">
+                    <div class="form-group">
+                        <label for="redbook-entry-content">今天有什么美好的时刻想要记录？</label>
+                        <textarea 
+                            id="redbook-entry-content" 
+                            rows="6" 
+                            placeholder="记录下这一刻的美好与宁静...&#10;&#10;可以是：&#10;• 看到的美景&#10;• 内心的感动&#10;• 宁静的时刻&#10;• 温暖的回忆"
+                            required></textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="primary-btn">添加</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- 红账本搜索模态框 -->
+        <div id="redbook-search-modal" class="modal hidden">
+            <div class="modal-header">
+                <h3>搜索历史红账</h3>
+                <button class="close-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="redbook-search-form">
+                    <div class="form-group">
+                        <label for="redbook-search-keyword">关键字搜索</label>
+                        <input type="text" id="redbook-search-keyword" placeholder="输入要搜索的关键字">
+                    </div>
+                    <div class="form-group">
+                        <label>日期范围</label>
+                        <div class="date-range-inputs">
+                            <input type="date" id="redbook-search-start-date" title="起始日期">
+                            <span>至</span>
+                            <input type="date" id="redbook-search-end-date" title="结束日期">
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="primary-btn redbook-btn">搜索</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 脚本加载 -->
+    <script src="js/storage.js"></script>
+    <script src="js/timer.js"></script>
+    <script src="js/tasks.js"></script>
+    <script src="js/statistics.js"></script>
+    <script src="js/notifications.js"></script>
+    <script src="js/fileVault.js"></script>
+    <script src="js/settings.js"></script>
+    <script src="js/redbook.js"></script>
+    <script src="js/app.js"></script>
+    <script>
+        // 注册 Service Worker - 完整版本
+        function registerServiceWorker() {
+            if (!('serviceWorker' in navigator)) {
+                console.log('当前浏览器不支持 Service Worker');
+                return;
+            }
+
+            // 检查协议支持
+            const isSecureContext = location.protocol === 'https:' || 
+                                location.hostname === 'localhost' || 
+                                location.hostname === '127.0.0.1' ||
+                                location.hostname === '0.0.0.0';
+
+            if (!isSecureContext) {
+                console.log('Service Worker 需要安全上下文 (HTTPS/localhost)，当前协议:', location.protocol);
+                return;
+            }
+
+            navigator.serviceWorker.register('./service-worker.js')
+                .then(registration => {
+                    console.log('Service Worker 注册成功:', registration.scope);
+                    
+                    // 监听更新
+                    registration.addEventListener('updatefound', () => {
+                        console.log('发现新的 Service Worker');
+                    });
+                })
+                .catch(error => {
+                    console.warn('Service Worker 注册失败:', error.message);
+                    
+                    // 根据错误类型提供友好提示
+                    if (error.message.includes('protocol')) {
+                        console.log('提示: 请在 HTTPS 环境或本地服务器中运行应用');
+                    }
+                });
+        }
+
+        // 页面加载完成后注册
+        if (document.readyState === 'loading') {
+            window.addEventListener('load', registerServiceWorker);
+        } else {
+            registerServiceWorker();
+        }
+    </script>
+</body>
+
+</html>

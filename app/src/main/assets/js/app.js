@@ -252,33 +252,22 @@ function displayCurrentDate() {
 function ensureAllFunctionsWork() {
     console.log('确保所有关键功能正常工作...');
     
-    // 使用setTimeout确保DOM完全加载
     setTimeout(() => {
-        // 1. 修复设置按钮
         fixSettingsButton();
-        
-        // 2. 修复任务模块事件
         fixTasksModule();
-        
-        // 3. 修复统计模块事件
         fixStatisticsModule();
-        
-        // 4. 修复计时器模块事件
         fixTimerModule();
-        
-        // 5. 确保关闭模态框功能正常
         fixModalCloseButtons();
-        
-        // 6. 设置起床打卡功能
+
+        // 关键顺序：先睡觉，再起床（保证“必须先睡后起”的约束生效）
+        setupSleepCheckIn();
         setupWakeupCheckIn();
-        
-        // 7. 确保任务模块事件绑定（新增）
+
         if (typeof TasksModule !== 'undefined' && TasksModule.ensureEventBindings) {
             setTimeout(() => {
                 TasksModule.ensureEventBindings();
             }, 200);
         }
-        
         console.log('所有功能修复完成');
     }, 100);
 }
@@ -373,35 +362,284 @@ function loadCurrentSettingsForApp() {
     }
 }
 
+
+/* ====================== 睡眠流程：先睡觉，后起床 ====================== */
+// 简易工具
+function isoToLocalHHmm(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+}
+function ymd(d) {
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function sameDate(a, b) {
+    return ymd(a) === ymd(b);
+}
+
+// 睡觉打卡：只记录“入睡引用时间”，允许跨日，不限制时间段
+function setupSleepCheckIn() {
+    const btn = document.getElementById('sleep-btn');
+    if (!btn) return;
+
+    // 首次刷新卡片状态
+    checkTodaySleepStatus();
+
+    // 去重绑定
+    const newBtn = btn.cloneNode(true);
+    btn.parentNode.replaceChild(newBtn, btn);
+
+    newBtn.addEventListener('click', () => {
+        performSleepCheckIn();
+    });
+}
+
+function checkTodaySleepStatus() {
+    try {
+        const sleepBtn = document.getElementById('sleep-btn');
+        const sleepStatus = document.getElementById('sleep-status');
+        const sleepTimeDisplay = document.getElementById('sleep-time-display');
+
+        const pending = StorageService.getPendingSleep();
+        const todayData = StorageService.getTodayData();
+
+        if (todayData.sleepDuration > 0) {
+            // 今日已结算完毕
+            if (sleepBtn) { sleepBtn.textContent = '已完成'; sleepBtn.disabled = true; sleepBtn.classList.add('secondary-btn'); sleepBtn.classList.remove('primary-btn'); }
+            if (sleepStatus) { sleepStatus.textContent = '已完成'; sleepStatus.classList.add('completed'); }
+            if (sleepTimeDisplay) {
+                const visible = todayData.sleepStartRef ? `入睡：${isoToLocalHHmm(todayData.sleepStartRef)}，起床：${isoToLocalHHmm(todayData.sleepEndRef)}` : '已完成';
+                sleepTimeDisplay.textContent = visible;
+                sleepTimeDisplay.classList.remove('hidden');
+            }
+            return;
+        }
+
+        if (pending && pending.startRef) {
+            // 已有未结算的入睡记录（可能是今天或昨夜）
+            if (sleepBtn) { sleepBtn.textContent = '已记录'; sleepBtn.disabled = true; sleepBtn.classList.add('secondary-btn'); sleepBtn.classList.remove('primary-btn'); }
+            if (sleepStatus) { sleepStatus.textContent = '已记录'; sleepStatus.classList.add('completed'); }
+            if (sleepTimeDisplay) { sleepTimeDisplay.textContent = `入睡时间：${isoToLocalHHmm(pending.startRef)}`; sleepTimeDisplay.classList.remove('hidden'); }
+        } else {
+            // 还未入睡
+            if (sleepBtn) { sleepBtn.textContent = '打卡'; sleepBtn.disabled = false; sleepBtn.classList.add('primary-btn'); sleepBtn.classList.remove('secondary-btn'); }
+            if (sleepStatus) { sleepStatus.textContent = '未打卡'; sleepStatus.classList.remove('completed'); }
+            if (sleepTimeDisplay) { sleepTimeDisplay.classList.add('hidden'); }
+        }
+    } catch (e) {
+        console.error('刷新睡觉卡片失败：', e);
+    }
+}
+
+function performSleepCheckIn() {
+    try {
+        const pending = StorageService.getPendingSleep();
+        if (pending && pending.startRef) {
+            NotificationsModule.showNotification('已记录', '已有未结算的入睡时间，请先完成“起床打卡”。');
+            return;
+        }
+
+        const now = new Date();
+        StorageService.setPendingSleep(now.toISOString());
+
+        // UI 刷新
+        checkTodaySleepStatus();
+        checkTodayWakeupStatus();
+
+        NotificationsModule.showNotification('睡觉打卡', '入睡时间已记录');
+    } catch (e) {
+        console.error('睡觉打卡失败：', e);
+        NotificationsModule.showNotification('打卡失败', '睡觉打卡时出错，请重试');
+    }
+}
+
+function setupWakeupCheckIn() {
+    console.log('设置起床打卡功能...');
+    const wakeupBtn = document.getElementById('wakeup-btn');
+    if (!wakeupBtn) return;
+
+    // 首次刷新卡片状态
+    checkTodayWakeupStatus();
+
+    // 去重绑定
+    const newWakeupBtn = wakeupBtn.cloneNode(true);
+    wakeupBtn.parentNode.replaceChild(newWakeupBtn, wakeupBtn);
+
+    newWakeupBtn.addEventListener('click', function() {
+        performWakeupCheckIn();
+    });
+}
+
+function checkTodayWakeupStatus() {
+    try {
+        const wakeupBtn = document.getElementById('wakeup-btn');
+        const wakeupStatus = document.getElementById('wakeup-status');
+        const wakeupTimeDisplay = document.getElementById('wakeup-time-display');
+
+        const todayData = StorageService.getTodayData();
+        const pending = StorageService.getPendingSleep();
+
+        if (todayData.sleepDuration > 0) {
+            // 已完成
+            const endTime = todayData.sleepEndRef ? new Date(todayData.sleepEndRef) : (todayData.wakeupTime ? new Date(todayData.wakeupTime) : null);
+            const timeString = endTime ? endTime.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '';
+            if (wakeupBtn) { wakeupBtn.textContent = '已完成'; wakeupBtn.disabled = true; wakeupBtn.classList.add('secondary-btn'); wakeupBtn.classList.remove('primary-btn'); }
+            if (wakeupStatus) { wakeupStatus.textContent = '已完成'; wakeupStatus.classList.add('completed'); }
+            if (wakeupTimeDisplay) { wakeupTimeDisplay.textContent = timeString ? `打卡时间：${timeString}` : ''; wakeupTimeDisplay.classList.remove('hidden'); }
+            return;
+        }
+
+        if (pending && pending.startRef) {
+            // 有待结算的入睡 → 允许起床
+            if (wakeupBtn) { wakeupBtn.textContent = '打卡'; wakeupBtn.disabled = false; wakeupBtn.classList.add('primary-btn'); wakeupBtn.classList.remove('secondary-btn'); }
+            if (wakeupStatus) { wakeupStatus.textContent = '可打卡'; wakeupStatus.classList.remove('completed'); }
+            if (wakeupTimeDisplay) { wakeupTimeDisplay.classList.add('hidden'); }
+        } else {
+            // 没有 pending → 不允许
+            if (wakeupBtn) { wakeupBtn.textContent = '待睡觉后可打卡'; wakeupBtn.disabled = true; wakeupBtn.classList.remove('primary-btn'); wakeupBtn.classList.add('secondary-btn'); }
+            if (wakeupStatus) { wakeupStatus.textContent = '请先睡觉打卡'; wakeupStatus.classList.remove('completed'); }
+            if (wakeupTimeDisplay) { wakeupTimeDisplay.classList.add('hidden'); }
+        }
+    } catch (e) {
+        console.error('检查起床打卡状态失败：', e);
+    }
+}
+
+// 计算睡眠分钟差（同日/跨日）
+function computeSleepMinutes(startISO, endISO) {
+    const start = new Date(startISO);
+    const end = new Date(endISO);
+    if (isNaN(start) || isNaN(end)) return 0;
+
+    if (sameDate(start, end)) {
+        return Math.max(0, Math.round((end - start) / 60000));
+    } else {
+        const nextMidnight = new Date(start);
+        nextMidnight.setHours(24, 0, 0, 0);
+        const endMidnight = new Date(end);
+        endMidnight.setHours(0, 0, 0, 0);
+        const part1 = Math.max(0, Math.round((nextMidnight - start) / 60000));
+        const part2 = Math.max(0, Math.round((end - endMidnight) / 60000));
+        return part1 + part2;
+    }
+}
+
+function performWakeupCheckIn() {
+    try {
+        const now = new Date();
+        const todayString = ymd(now);
+        const allData = JSON.parse(localStorage.getItem(StorageService.KEYS.DAILY_DATA)) || [];
+
+        // 今日记录
+        let todayIndex = allData.findIndex(d => d.date === todayString);
+        if (todayIndex === -1) {
+            allData.push({
+                date: todayString,
+                wakeupTime: now.toISOString(),
+                sleepStartRef: null,
+                sleepEndRef: null,
+                sleepDuration: 0,
+                sleepStartTime: null, // 旧字段保留
+                sleepEndTime: null,   // 旧字段保留
+                studySessions: [],
+                completedTasks: [],
+                totalEarnings: { bodyHealth: 0, mentalHealth: 0, soulNourishment: 0, selfImprovement: 0, socialBonds: 0, total: 0 }
+            });
+            todayIndex = allData.length - 1;
+        } else {
+            allData[todayIndex].wakeupTime = now.toISOString();
+        }
+
+        // 防重复
+        if (allData[todayIndex].sleepDuration > 0) {
+            NotificationsModule.showNotification('已完成', '今日睡眠已结算，无需重复打卡');
+            checkTodayWakeupStatus();
+            return;
+        }
+
+        // 必须先睡觉
+        const pending = StorageService.getPendingSleep();
+        if (!pending || !pending.startRef) {
+            NotificationsModule.showNotification('无法打卡', '请先进行“今日睡觉打卡”');
+            checkTodayWakeupStatus();
+            return;
+        }
+
+        // 结算
+        const startRef = pending.startRef;
+        const endRef = now.toISOString();
+        const minutes = computeSleepMinutes(startRef, endRef);
+
+        // 归属今天
+        allData[todayIndex].sleepStartRef = startRef;
+        allData[todayIndex].sleepEndRef = endRef;
+        allData[todayIndex].sleepDuration = minutes;
+
+        // 清 pending
+        StorageService.clearPendingSleep();
+
+        // 保存
+        localStorage.setItem(StorageService.KEYS.DAILY_DATA, JSON.stringify(allData));
+
+        // 刷新 UI
+        checkTodaySleepStatus();
+        checkTodayWakeupStatus();
+
+        const h = Math.floor(minutes / 60);
+        const m = minutes % 60;
+        NotificationsModule.showNotification('起床打卡成功', `本次睡眠：${h}小时${m}分钟`);
+
+        // 刷新总览/统计
+        if (typeof updateDailyOverview === 'function') updateDailyOverview();
+        try {
+            const activeTab = document.querySelector('.chart-tab.active');
+            const activePeriod = document.querySelector('.stat-period.active')?.dataset?.period || 'day';
+            if (activeTab && activeTab.dataset.chart === 'sleep' && typeof StatisticsModule.updateSleepChart === 'function') {
+                StatisticsModule.updateSleepChart(activePeriod);
+            }
+        } catch (_) {}
+    } catch (e) {
+        console.error('起床打卡失败：', e);
+        NotificationsModule.showNotification('打卡失败', '起床打卡时出错，请重试');
+    }
+}
+
+// 暴露到全局，供设置中的“重置今日睡眠记录”等调用后刷新
+window.checkTodaySleepStatus = checkTodaySleepStatus;
+window.checkTodayWakeupStatus = checkTodayWakeupStatus;
+window.performSleepCheckIn = performSleepCheckIn;
+window.performWakeupCheckIn = performWakeupCheckIn;
+
+
+
+
+
+
+
+
+// 新增：专门绑定设置按钮事件的函数
 // 新增：专门绑定设置按钮事件的函数
 function bindSettingsButtonEvents() {
     console.log('绑定设置按钮事件...');
     
-    // 绑定导出所有数据按钮
     const exportAllDataBtn = document.getElementById('export-all-data');
     if (exportAllDataBtn) {
-        // 先移除旧的事件监听器
         exportAllDataBtn.removeEventListener('click', exportAllDataFunction);
-        // 绑定新的事件监听器
         exportAllDataBtn.addEventListener('click', exportAllDataFunction);
     }
     
-    
-    // 绑定保存设置按钮
     const saveSettingsBtn = document.getElementById('save-settings');
     if (saveSettingsBtn) {
         saveSettingsBtn.removeEventListener('click', saveAllSettings);
         saveSettingsBtn.addEventListener('click', saveAllSettings);
     }
     
-    // 绑定开发者模式切换
     const devModeToggle = document.getElementById('dev-mode-toggle');
     if (devModeToggle) {
         devModeToggle.removeEventListener('change', handleDevModeToggle);
         devModeToggle.addEventListener('change', handleDevModeToggle);
     }
     
-    // 绑定开发者选项按钮
     const addTestDataBtn = document.getElementById('add-test-data');
     if (addTestDataBtn) {
         addTestDataBtn.removeEventListener('click', addTestDataFunction);
@@ -412,6 +650,39 @@ function bindSettingsButtonEvents() {
     if (resetTodayBtn) {
         resetTodayBtn.removeEventListener('click', resetTodayDataFunction);
         resetTodayBtn.addEventListener('click', resetTodayDataFunction);
+    }
+
+    // 新增：重置今日睡眠记录（开发者选项）
+    const resetSleepBtn = document.getElementById('reset-sleep-today');
+    if (resetSleepBtn) {
+        const newBtn = resetSleepBtn.cloneNode(true);
+        resetSleepBtn.parentNode.replaceChild(newBtn, resetSleepBtn);
+        newBtn.addEventListener('click', () => {
+            try {
+                // 清掉 pending
+                StorageService.clearPendingSleep();
+                // 清掉今日 sleep 相关
+                const all = StorageService.getAllData();
+                const tStr = StorageService.getTodayString();
+                const idx = all.findIndex(d => d.date === tStr);
+                if (idx !== -1) {
+                    all[idx].sleepStartRef = null;
+                    all[idx].sleepEndRef = null;
+                    all[idx].sleepDuration = 0;
+                    // 旧字段也清空（可选）
+                    all[idx].sleepStartTime = null;
+                    all[idx].sleepEndTime = null;
+                    localStorage.setItem(StorageService.KEYS.DAILY_DATA, JSON.stringify(all));
+                }
+                checkTodaySleepStatus();
+                checkTodayWakeupStatus();
+                if (typeof updateDailyOverview === 'function') updateDailyOverview();
+                NotificationsModule.showNotification('已重置', '今日睡眠记录与待结算入睡时间已清除');
+            } catch (e) {
+                console.error(e);
+                NotificationsModule.showNotification('操作失败', e.message || '未知错误');
+            }
+        });
     }
     
     console.log('设置按钮事件绑定完成');
@@ -439,14 +710,10 @@ function toggleDevModeForApp(enabled) {
 function fixModalCloseButtons() {
     console.log('修复模态框关闭按钮...');
     
-    // 修复所有关闭模态框按钮 - 不替换元素，直接绑定
     document.querySelectorAll('.close-modal').forEach(function(btn) {
-        // 移除现有事件监听器
         const newBtn = btn.cloneNode(true);
         if (btn.parentNode) {
             btn.parentNode.replaceChild(newBtn, btn);
-            
-            // 重新绑定事件
             newBtn.addEventListener('click', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -456,13 +723,10 @@ function fixModalCloseButtons() {
         }
     });
     
-    // 修复点击遮罩层关闭模态框 - 确保只绑定一次
     const modalOverlay = document.getElementById('modal-overlay');
     if (modalOverlay && !modalOverlay.hasAttribute('data-overlay-bound')) {
         modalOverlay.setAttribute('data-overlay-bound', 'true');
-        
         modalOverlay.addEventListener('click', function(e) {
-            // 只有点击遮罩层本身（不是模态框内容）时才关闭
             if (e.target === this) {
                 console.log('点击遮罩层关闭模态框');
                 closeAllModals();
@@ -471,47 +735,32 @@ function fixModalCloseButtons() {
     }
 }
 
-// 新增：关闭所有模态框的统一函数
 function closeAllModals() {
     const modalOverlay = document.getElementById('modal-overlay');
     if (modalOverlay) {
-        // 关键修复：移除计时器使用的特殊类，避免与 .hidden 冲突导致遮罩仍显示
         modalOverlay.classList.remove('show-exit-modal');
         modalOverlay.classList.add('hidden');
     }
-    
-    // 隐藏所有模态框
     document.querySelectorAll('.modal').forEach(function(modal) {
         modal.classList.add('hidden');
     });
 }
 
-
-
-// 在 fixSettingsButton 函数中调用关闭按钮修复
 function fixSettingsButton() {
     const settingsBtn = document.getElementById('settings-btn');
     if (settingsBtn) {
-        // 移除旧事件监听器
         const newSettingsBtn = settingsBtn.cloneNode(true);
         settingsBtn.parentNode.replaceChild(newSettingsBtn, settingsBtn);
-        
-        // 重新绑定事件
         newSettingsBtn.addEventListener('click', function() {
             console.log('设置按钮被点击');
-            
             try {
-                // 使用SettingsModule的openSettingsModal方法
                 SettingsModule.openSettingsModal();
             } catch (error) {
                 console.error('打开设置失败:', error);
-                
-                // 确保隐藏遮罩层，避免卡住
                 const modalOverlay = document.getElementById('modal-overlay');
                 if (modalOverlay) {
                     modalOverlay.classList.add('hidden');
                 }
-                
                 if (typeof NotificationsModule !== 'undefined') {
                     NotificationsModule.showNotification('设置打开失败', '请刷新页面后重试: ' + error.message);
                 }
@@ -520,15 +769,10 @@ function fixSettingsButton() {
     }
 }
 
-
-
-// 导出所有数据功能
 // 导出所有数据功能
 async function exportAllDataFunction() {
     try {
         console.log('开始导出所有数据...');
-        
-        // 获取所有数据
         const allData = {
             dailyData: JSON.parse(localStorage.getItem('bloom_daily_data')) || [],
             tasks: JSON.parse(localStorage.getItem('bloom_tasks')) || {},
@@ -537,34 +781,25 @@ async function exportAllDataFunction() {
             redbookEntries: JSON.parse(localStorage.getItem('bloom_redbook_entries')) || [],
             redbookSettings: JSON.parse(localStorage.getItem('bloom_redbook_settings')) || {}
         };
-        
-        // 生成文件名
         const now = new Date();
         const dateString = now.toISOString().split('T')[0];
         const fileName = `full_export_${dateString}.json`;
-        
-        // 尝试保存到FileVault
         const saved = await FileVault.saveJSON(fileName, allData);
-        
         if (saved) {
-            // 显示成功通知
             if (typeof NotificationsModule !== 'undefined') {
                 NotificationsModule.showNotification('导出成功', `数据已保存到文件夹: ${fileName}`);
             } else {
                 alert(`导出成功！文件已保存：${fileName}`);
             }
         } else {
-            // 降级到直接下载（FileVault内部已处理）
             if (typeof NotificationsModule !== 'undefined') {
                 NotificationsModule.showNotification('导出完成', `文件已下载: ${fileName}`);
             } else {
                 alert(`导出完成！文件已下载：${fileName}`);
             }
         }
-        
     } catch (error) {
         console.error('导出所有数据失败:', error);
-        
         if (typeof NotificationsModule !== 'undefined') {
             NotificationsModule.showNotification('导出失败', `导出数据时出错: ${error.message}`);
         } else {
@@ -572,7 +807,6 @@ async function exportAllDataFunction() {
         }
     }
 }
-
 
 
 // 保存所有设置功能
@@ -1082,223 +1316,6 @@ function fixTimerModule() {
     }
 }
 
-
-// 在 app.js 中添加起床打卡相关函数
-function setupWakeupCheckIn() {
-    console.log('设置起床打卡功能...');
-    
-    // 获取起床打卡按钮
-    const wakeupBtn = document.getElementById('wakeup-btn');
-    
-    if (!wakeupBtn) {
-        console.error('找不到起床打卡按钮');
-        return;
-    }
-    
-    // 检查今日是否已打卡
-    checkTodayWakeupStatus();
-    
-    // 移除旧事件监听器
-    const newWakeupBtn = wakeupBtn.cloneNode(true);
-    wakeupBtn.parentNode.replaceChild(newWakeupBtn, wakeupBtn);
-    
-    // 绑定新的事件监听器
-    newWakeupBtn.addEventListener('click', function() {
-        console.log('起床打卡按钮被点击');
-        performWakeupCheckIn();
-    });
-}
-
-// 检查今日起床打卡状态 - 修正函数名
-function checkTodayWakeupStatus() {
-    try {
-        const todayString = new Date().toISOString().split('T')[0];
-        const allData = JSON.parse(localStorage.getItem('bloom_daily_data')) || [];
-        const todayData = allData.find(data => data.date === todayString);
-        
-        const wakeupBtn = document.getElementById('wakeup-btn');
-        const wakeupStatus = document.getElementById('wakeup-status');
-        const wakeupTimeDisplay = document.getElementById('wakeup-time-display');
-        
-        if (todayData && todayData.wakeupTime) {
-            // 已经打卡
-            const wakeupTime = new Date(todayData.wakeupTime);
-            const timeString = wakeupTime.toLocaleTimeString('zh-CN', {
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-            
-            if (wakeupBtn) {
-                wakeupBtn.textContent = '已打卡';
-                wakeupBtn.disabled = true;
-                wakeupBtn.classList.add('secondary-btn');
-                wakeupBtn.classList.remove('primary-btn');
-            }
-            
-            if (wakeupStatus) {
-                wakeupStatus.textContent = '已完成';
-                wakeupStatus.classList.add('completed');
-            }
-            
-            if (wakeupTimeDisplay) {
-                wakeupTimeDisplay.textContent = `打卡时间：${timeString}`;
-                wakeupTimeDisplay.classList.remove('hidden');
-            }
-        } else {
-            // 未打卡
-            if (wakeupBtn) {
-                wakeupBtn.textContent = '打卡';
-                wakeupBtn.disabled = false;
-                wakeupBtn.classList.add('primary-btn');
-                wakeupBtn.classList.remove('secondary-btn');
-            }
-            
-            if (wakeupStatus) {
-                wakeupStatus.textContent = '未打卡';
-                wakeupStatus.classList.remove('completed');
-            }
-            
-            if (wakeupTimeDisplay) {
-                wakeupTimeDisplay.classList.add('hidden');
-            }
-        }
-    } catch (error) {
-        console.error('检查起床打卡状态失败:', error);
-    }
-}
-
-// 执行起床打卡
-function performWakeupCheckIn() {
-    try {
-        const now = new Date();
-        const todayString = now.toISOString().split('T')[0];
-        const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        
-        // 获取今日数据
-        const allData = JSON.parse(localStorage.getItem('bloom_daily_data')) || [];
-        let todayDataIndex = allData.findIndex(data => data.date === todayString);
-        
-        // 检查是否已经打卡
-        if (todayDataIndex !== -1 && allData[todayDataIndex].wakeupTime) {
-            if (typeof NotificationsModule !== 'undefined') {
-                NotificationsModule.showNotification('重复打卡', '今天已经完成起床打卡了！');
-            }
-            return;
-        }
-        
-        // 创建或更新今日数据
-        if (todayDataIndex === -1) {
-            allData.push({
-                date: todayString,
-                wakeupTime: now.toISOString(),
-                completedTasks: [],
-                studySessions: [],
-                totalEarnings: {
-                    bodyHealth: 0,
-                    mentalHealth: 0,
-                    soulNourishment: 0,
-                    selfImprovement: 0,
-                    socialBonds: 0,
-                    total: 0
-                }
-            });
-            todayDataIndex = allData.length - 1;
-        } else {
-            allData[todayDataIndex].wakeupTime = now.toISOString();
-        }
-        
-        // 获取早起设置
-        const earlyWakeSettings = allData[todayDataIndex].earlyWakeSettings;
-        let earnings = 0;
-        let message = '';
-        let encouragement = '';
-        
-        if (earlyWakeSettings && earlyWakeSettings.startTime && earlyWakeSettings.endTime) {
-            // 检查是否在规定时间内
-            if (currentTime >= earlyWakeSettings.startTime && currentTime <= earlyWakeSettings.endTime) {
-                earnings = 2;
-                message = '起床打卡成功！你在规定时间内起床，真棒！';
-                encouragement = '早起的鸟儿有虫吃，继续保持这个好习惯！';
-                
-                // 更新收入
-                allData[todayDataIndex].totalEarnings.bodyHealth += earnings;
-                allData[todayDataIndex].totalEarnings.total += earnings;
-            } else {
-                message = '起床打卡成功！';
-                encouragement = `建议在${earlyWakeSettings.startTime}-${earlyWakeSettings.endTime}之间起床可获得奖励哦，明天加油！`;
-            }
-        } else {
-            message = '起床打卡成功！';
-            encouragement = '记得在设置中配置早起时间段，可以获得额外奖励！';
-        }
-        
-        // 添加打卡任务记录
-        const wakeupTask = {
-            id: `wakeup-${now.getTime()}`,
-            category: '身体健康',
-            name: earnings > 0 ? '起床打卡（奖励）' : '起床打卡',
-            completed: true,
-            date: now.toISOString(),
-            earnings: earnings
-        };
-        
-        allData[todayDataIndex].completedTasks.push(wakeupTask);
-        
-        // 保存数据
-        localStorage.setItem('bloom_daily_data', JSON.stringify(allData));
-        
-        // 更新UI
-        updateWakeupUI(now, earnings > 0);
-        
-        // 显示通知
-        if (typeof NotificationsModule !== 'undefined') {
-            NotificationsModule.showNotification(message, encouragement + (earnings > 0 ? ` 获得${earnings}元奖励！` : ''));
-        }
-        
-        // 更新总览
-        if (typeof updateDailyOverview === 'function') {
-            updateDailyOverview();
-        }
-        
-        console.log('起床打卡完成');
-        
-    } catch (error) {
-        console.error('起床打卡失败:', error);
-        
-        if (typeof NotificationsModule !== 'undefined') {
-            NotificationsModule.showNotification('打卡失败', '起床打卡时出错，请重试');
-        }
-    }
-}
-
-// 更新起床打卡UI
-function updateWakeupUI(checkInTime, hasReward) {
-    const wakeupBtn = document.getElementById('wakeup-btn');
-    const wakeupStatus = document.getElementById('wakeup-status');
-    const wakeupTimeDisplay = document.getElementById('wakeup-time-display');
-    
-    const timeString = checkInTime.toLocaleTimeString('zh-CN', {
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-    
-    if (wakeupBtn) {
-        wakeupBtn.textContent = '已打卡';
-        wakeupBtn.disabled = true;
-        wakeupBtn.classList.add('secondary-btn');
-        wakeupBtn.classList.remove('primary-btn');
-    }
-    
-    if (wakeupStatus) {
-        wakeupStatus.textContent = hasReward ? '已完成（有奖励）' : '已完成';
-        wakeupStatus.classList.add('completed');
-    }
-    
-    if (wakeupTimeDisplay) {
-        wakeupTimeDisplay.textContent = `打卡时间：${timeString}`;
-        wakeupTimeDisplay.classList.remove('hidden');
-    }
-}
 
 
 // 全局可访问的更新函数（供其他模块调用）

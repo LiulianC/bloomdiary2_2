@@ -290,6 +290,16 @@ const SettingsModule = (() => {
                 NotificationsModule.showNotification('操作失败', error.message);
             }
         });
+
+        // 新增：重置“今日睡眠记录”真实绑定
+        document.getElementById('reset-sleep-today')?.addEventListener('click', function() {
+            try {
+                resetTodaySleepRecord();
+            } catch (e) {
+                console.error(e);
+                NotificationsModule.showNotification('操作失败', e.message || '未知错误');
+            }
+        });        
         
         // 加载当前设置
         try {
@@ -1269,12 +1279,45 @@ const SettingsModule = (() => {
         localStorage.setItem('bloom_redbook_settings', JSON.stringify(mergedRedbookSettings));
     };
     
+    const resetTodaySleepRecord = () => {
+        // 1) 清掉待结算入睡
+        StorageService.clearPendingSleep();
+
+        // 2) 清空“今天”的睡眠字段
+        const all = StorageService.getAllData();
+        const tStr = StorageService.getTodayString();
+        const idx = all.findIndex(d => d.date === tStr);
+        if (idx !== -1) {
+            all[idx].sleepStartRef = null;
+            all[idx].sleepEndRef = null;
+            all[idx].sleepDuration = 0;
+            // 旧字段一并清掉（防止历史 UI 误读）
+            all[idx].sleepStartTime = null;
+            all[idx].sleepEndTime = null;
+            localStorage.setItem(StorageService.KEYS.DAILY_DATA, JSON.stringify(all));
+        }
+
+        // 3) 刷新首页卡片状态与统计
+        try { window.checkTodaySleepStatus?.(); } catch(_) {}
+        try { window.checkTodayWakeupStatus?.(); } catch(_) {}
+        try { window.updateDailyOverview?.(); } catch(_) {}
+
+        // 如果正显示统计页-睡眠图，也刷新
+        try {
+            const activeTab = document.querySelector('.chart-tab.active');
+            const period = document.querySelector('.stat-period.active')?.dataset?.period || 'day';
+            if (activeTab?.dataset.chart === 'sleep') StatisticsModule.updateSleepChart?.(period);
+        } catch(_) {}
+
+        NotificationsModule.showNotification('已重置', '今日睡眠记录与待结算入睡时间已清除');
+    };
+
     // 公开API
     return {
         initialize,
         calculateDataSize,
         loadCurrentSettings,
-        openSettingsModal,  // 添加此方法到公开API
+        openSettingsModal,
         importVaultFile,
         renameVaultFile,
         deleteVaultFile
